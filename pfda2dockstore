@@ -211,17 +211,15 @@ def pfda_app_to_cwl(app, docker_pull):
                 "prefix": "--" + inp["name"]
             }
         }
-        if inp["class"] == "string":
-            cwl_inp["type"] = "string"
-        elif inp["class"] == "int":
-            cwl_inp["type"] = "long"
-        elif inp["class"] == "file":
-            cwl_inp["type"] = "File"
-        elif inp["class"] == "boolean":
-            cwl_inp["type"] = "boolean"
-        elif inp["class"] == "float":
-            cwl_inp["type"] = "double"
-        else:
+        type_map = {
+            "string": "string",
+            "int": "long",
+            "file": "File",
+            "boolean": "boolean",
+            "float": "double"
+        }
+        cwl_inp["type"] = type_map.get(inp["class"], None)
+        if not cwl_inp["type"]:
             raise Exception("Unsupported input type: {} {}".format(inp["class"], inp["name"]))
         if "default" in inp and inp["class"] != "file":
             cwl_inp["default"] = inp["default"]
