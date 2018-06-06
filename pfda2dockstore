@@ -14,6 +14,10 @@ from agithub.GitHub import GitHub
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+##############################################################
+# Utils
+##############################################################
+
 def pp_json(js):
     print(json.dumps(js, indent=4, sort_keys=True))
 
@@ -21,7 +25,7 @@ def pp_json(js):
 # Extract data from pFDA
 ##############################################################
 
-def resolve_pfda_app_name(token, app_name, app_version):
+def resolve_pfda_app_name(token, app_name):
     """
     Returns a list of app descriptions that match the given app name
 
@@ -30,8 +34,8 @@ def resolve_pfda_app_name(token, app_name, app_version):
     :param app_version: (string) Version of the app
     :return: list of dicts
     """
-    list_of_apps = pfda_api(token, "/list_apps")
-    return [app for app in list_of_apps if app["name"] == app_name]
+    apps = list_pfda_apps(token)
+    return [app for app in apps if app["name"] == app_name]
 
 def get_app_revisions(token, app_id):
     """
@@ -89,8 +93,8 @@ def pfda_api(token, path, body={}):
     }
     response = requests.post(url, headers=headers, data=json.dumps(body))
     if response.status_code != 200:
-        print("precisionFDA API error status {}:".format(response.status_code), file=sys.stderr)
-        print(response.json(), file=sys.stderr)
+        logger.error("precisionFDA API error status {}:".format(response.status_code))
+        logger.error(response.json())
         sys.exit(1)
     return response.json()
 
@@ -102,7 +106,6 @@ def pfda_app_to_cwl(app, docker_pull):
     :param docker_pull:
     :return: CWL code dict
     """
-    print(app)
     cwl = {
         "class": "CommandLineTool",
         "id": app["name"],
@@ -236,8 +239,10 @@ def setup_github_repo_and_tags(token, org, tool, app_version, cwl_file, dockerfi
 ##############################################################
 
 def docker_build(tag, dockerfile):
+
     p = subprocess.Popen(["docker", "build", "-t", tag, "-"], stdin=subprocess.PIPE)
     p.communicate(dockerfile.encode('utf-8'))
+
     return p.returncode == 0
 
 def docker_push(tag, hub, orgname, accountname, token):
@@ -266,7 +271,7 @@ def docker_push(tag, hub, orgname, accountname, token):
         # TODO: fix me, this ignores "hub" since we're using DockerHub...
         cmd = ["docker", "push", tag]
         subprocess.check_call(cmd)
-        subprocess.check_call(["docker", "logout"])
+        # subprocess.check_call(["docker", "logout"])
     except subprocess.CalledProcessError as e:
         raise Exception("Failed to push image {} to {}/{}.\n{}".format(tag, hub, orgname, e))
 
@@ -275,8 +280,10 @@ def docker_push(tag, hub, orgname, accountname, token):
 ##############################################################
 
 def register_on_dockstore(token, dockstore_org, github_org, dockerhub_org,
-                          repo_name, version, author,
-                          cwl_path, cwl_descriptor, wdl_path, dockerfile_path):
+                          app, author_and_org,
+                          cwl_path, cwl_descriptor,
+                          dockerfile_path, dockerfile_content,
+                          wdl_path):
     """
 
     :param repo_name: Repo name (identical to the app name)
@@ -288,8 +295,8 @@ def register_on_dockstore(token, dockstore_org, github_org, dockerhub_org,
     :param author:
     :return:
     """
-    build_time = utc_datetime = datetime.datetime.now()
-    build_time = utc_datetime.isoformat()
+    build_time = datetime.datetime.now().isoformat()
+    description = "This app was exported from precisionFDA (https://precision.fda.gov)\n" + app["readme"]
     dockstore_headers = {
         'Authorization': 'Bearer {}'.format(token),
         'Accept': 'application/json, text/plain, */*',
@@ -297,33 +304,39 @@ def register_on_dockstore(token, dockstore_org, github_org, dockerhub_org,
     }
 
     tags = [{
-        "reference": "master", # Git reference
+        "name": app["revision"],
+        "reference": "master", # Default Git branch reference
         "sourceFiles": [
             {
                 "id": 0,
                 "type": "DOCKSTORE_CWL",
-                "content": cwl_descriptor,
+                "content": "cwl_descriptor",
                 "path": cwl_path
+            # },
+            # {
+            #     "id": 1,
+            #     "type": "DOCKERFILE",
+            #     "content": dockerfile_content,
+            #     "path": dockerfile_path
             }
         ],
-        "name": version,
         "doiURL": "string",
         "dockerfile_path": dockerfile_path,
         "cwl_path": cwl_path,
         "wdl_path": wdl_path,
         "automated": True,
         "workingDirectory": "string",
-        "image_id": "string"
+        "image_id": "string",
+        "last_modified": build_time
     }]
 
     dockstore_data = {
         "mode": "MANUAL_IMAGE_PATH",
-        "descriptorType": "CWL",
-        "name": repo_name,
-        "toolname": repo_name,
-        "namespace": github_org,
+        "name": app["name"],
+        "toolname": app["name"],
+        "namespace": dockstore_org,
         "registry": "DOCKER_HUB",
-        "gitUrl":"https://github.com/{}/{}".format(github_org, repo_name),
+        "gitUrl":"https://github.com/{}/{}".format(github_org, app["name"]),
         "default_dockerfile_path": dockerfile_path,
         "default_cwl_path": cwl_path,
         "default_wdl_path": wdl_path,
@@ -331,24 +344,137 @@ def register_on_dockstore(token, dockstore_org, github_org, dockerhub_org,
         "defaultWDLTestParameterFile": "/test.wdl.json",
         "is_published": False,
         "private_access": False,
-        "author": author,
-        # "description": "string",
+        "author": author_and_org,
+        "description": description,
         "lastBuild": build_time,
         "lastUpdated": build_time,
+        "labels": [
+            {
+                "value": "precisionFDA"
+            }
+        ],
         "tags": tags
     }
 
-    print(json.dumps(dockstore_data))
+    logger.info("Will create a repo on Dockstore with the spec: ".format(json.dumps(dockstore_data)))
 
     response = requests.post("https://dockstore.org:8443/containers/registerManual",
                              data=json.dumps(dockstore_data),
                              headers=dockstore_headers,
                              allow_redirects=True)
     print
-    print(response.content)
-    print(response.status_code)
+    logger.info(response.content)
+    logger.info(response.status_code)
 
     response.raise_for_status()
+
+##############################################################
+# Export or list apps
+##############################################################
+
+def print_apps(apps):
+    for app in apps:
+        print("{}\t{}\t{}".format(app["name"], app["revision"], app["title"]))
+        #pp_json(app)
+
+def list_pfda_apps(token):
+    """
+    Lists public apps on precisionFDA
+
+    :param token: pFDA access token
+    :return: list of dictionaries
+    """
+    return pfda_api(token, "/list_apps")
+
+
+def export_apps(args, apps):
+    """
+    Exports all the apps from the list
+
+    :param args: arguments passed to the script
+    :param apps: list of apps
+    :return:
+    """
+    for index, app in enumerate(apps):
+        logger.info("Exporting app {} out of {} from precisionFDA".format(index+1, len(apps)))
+        try:
+            export_app(args, app)
+        except Exception as e:
+            logger.error('Failed to export "{}"'.format(app["name"]))
+            logger.error('Exception: \n'.format(e))
+
+
+def export_app(args, app):
+    """
+    Exports one app from precisionFDA to Dockstore
+
+    :param args: arguments passed to the script
+    :param app: (dict) app description
+    :return:
+    """
+    logger.info('About to export "{}:{}"'.format(app["name"], app["revision"]))
+
+    app_version = app["revision"]
+    # the docker path on quay
+    # docker_tag = "quay.io/" + args.q_org + "/" + args.app_name + ":" + str(app_version)
+    docker_tag = args.d_org + "/" + app["name"] + ":" + str(app_version)
+
+    # Add org and user (need a separate "describe" call to get authorship) Example:
+    # app_desc["org"]: {'handle': 'bestgenetics', 'name': 'Best Genetics, Inc.'}
+    # app_desc["user"]: {'dxuser': 'jdoe', 'full_name': 'John Doe'}
+    app_desc = describe_app(args.pfda_token, app["uid"], include={"user": True, "org": True, "all_tags_list": True})
+    app["org"] = app_desc.get("org", "").get("name", "")
+    app["user"] = app_desc.get("user", "").get("full_name", "")
+    author_and_org = "{} / {}".format(app["user"], app["org"])
+
+    # make the CWL
+    cwl = pfda_app_to_cwl(app, docker_tag)
+
+    # make the Dockerfile
+    dockerfile = pfda_export_app_dockerfile(args.pfda_token, app["uid"])
+    dockerfile = dockerfile + "\nVOLUME /data\nVOLUME /work" # https://github.com/common-workflow-language/cwltool/issues/30
+    # TODO: need to build automatically on Quay.io, wait for it to finish, then register on Dockstore
+    if not docker_build(docker_tag, dockerfile):
+        sys.exit(1)
+
+    # upload to Github
+    cwl_content = yaml.dump(cwl, default_flow_style=False)
+    dockerfile_content = dockerfile
+    setup_github_repo_and_tags(args.gh_token, args.gh_org, app["name"], app_version, cwl_content, dockerfile_content)
+
+    # TODO: replace this with the code from Ola and Geet that pushes to Quay.io
+    #print("Pushing {} to quay.io".format(docker_tag))
+    #docker_push(docker_tag, "ignored_for_now", args.d_org, args.q_account, args.q_token)
+    docker_push(docker_tag, "ignored_for_now", args.d_org, "ignore_for_now", "ignore_for_now")
+
+    # TODO: this needs to still be done, see the google doc for endpoint swagger link
+    register_on_dockstore(args.ds_token, args.ds_org, args.gh_org, args.d_org,
+                          app, author_and_org,
+                          "/Dockstore.cwl", cwl_content,
+                          "/Dockerfile", dockerfile_content,
+                          "/Dockstore.wdl")
+
+
+def get_app_info(args):
+    """
+
+    :param args:
+    :return:
+    """
+    apps = resolve_pfda_app_name(args.pfda_token, args.app_name)
+
+    # select the app with a version provided. If it was not provided the latest version will be used
+    if args.app_version:
+        apps = [app for app in apps if app.get("revision") == args.app_version]
+    else:
+        apps = sorted(apps, key=lambda app: app.get("revision"), reverse=True)
+    if len(apps) == 0:
+        logger.error("Couldn't find app named " + args.app_name)
+        sys.exit(1)
+    elif len(apps) > 1:
+        logger.warn("Note: multiple public apps named {}; using highest revision {}".format(args.app_name, apps[0]["revision"]))
+    return apps[0]
+
 
 ##############################################################
 # Argument parser
@@ -368,77 +494,47 @@ def get_args():
     parser.add_argument('--dockstore-token', dest='ds_token', help='Your Dockstore token')
 
     # FIXME: currently it just takes the most recent version
+    # Note: most apps on precisionFDA has only one public version available
     parser.add_argument('--app-version', dest='app_version', type=str, help="precisionFDA app version")
     parser.add_argument('--app-name', dest='app_name', type=str, help="precisionFDA app name")
-    args = parser.parse_args()
 
+    parser.add_argument('--list-all-apps', dest="list_all_apps", action="store_true", help="Print a list of all the apps in precisionFDA")
+    parser.add_argument('--export-all-apps', dest="export_all_apps", action="store_true", help="Export all the apps in precisionFDA")
+
+    args = parser.parse_args()
     return args
+
+def validate_args(args):
+    if not args.ds_token:
+        raise Exception("Dockstore access token must be provided")
+    if not args.pfda_token:
+        raise Exception("Precision FDA access token must be provided")
+    if not args.gh_token:
+        raise Exception("GitHub access token must be provided")
+    if not args.d_org:
+        raise Exception("Docker hub org must be provided")
+    if not args.gh_org:
+        raise Exception("GitHub org must be provided")
+    if not args.ds_org:
+        raise Exception("Dockstore org must be provided")
+    #if args.d_org:
+    #     subprocess.docker login - -username foo - -password - stdin
 
 def main():
     args = get_args()
 
-    # get app info
-    apps = resolve_pfda_app_name(args.pfda_token, args.app_name, args.app_version)
-
-    print(len(apps))
-    # select the app with a version provided. If it was not provided the latest version will be used
-    if args.app_version:
-        apps = [app for app in apps if app.get("revision") == args.app_version]
+    if args.list_all_apps:
+        apps = list_pfda_apps(args.pfda_token)
+        print_apps(apps)
+    elif args.export_all_apps:
+        validate_args(args)
+        apps = list_pfda_apps(args.pfda_token)
+        export_apps(args, apps[4:6])
     else:
-        apps = sorted(apps, key=lambda app: app.get("revision"), reverse=True)
-    if len(apps) == 0:
-        print("Couldn't find app named " + args.app_name, file=sys.stderr)
-        sys.exit(1)
-    elif len(apps) > 1:
-        print("Note: multiple public apps named {}; using highest revision {}".format(args.app_name, apps[0]["revision"]), file=sys.stderr)
+        validate_args(args)
+        app = get_app_info(args)
+        export_app(args, app)
 
-
-    app = apps[0]
-    # the app revision
-    app_version = app["revision"]
-    # the docker path on quay
-    # docker_tag = "quay.io/" + args.q_org + "/" + args.app_name + ":" + str(app_version)
-    docker_tag = args.d_org + "/" + args.app_name + ":" + str(app_version)
-
-    # Add org and user (need a separate "describe" call to get authorship) Example:
-    # app_desc["org"]: {'handle': 'bestgenetics', 'name': 'Best Genetics, Inc.'}
-    # app_desc["user"]: {'dxuser': 'jdoe', 'full_name': 'John Doe'}
-    app_desc = describe_app(args.pfda_token, app["uid"], include={"user": True, "org": True, "all_tags_list": True})
-    app["org"] = app_desc.get("org", "").get("name", "")
-    app["user"] = app_desc.get("user", "").get("full_name", "")
-    author_and_org = "{} / {}".format(app["user"], app["org"])
-
-    #pp_json(app_desc)
-    #sys.exit()
-    app_spec = pfda_api(args.pfda_token, "/get_app_spec", {"id": app["uid"]})
-    pp_json(app_spec)
-
-    # make the CWL
-    cwl = pfda_app_to_cwl(app, docker_tag)
-
-    print (yaml.dump(cwl, default_flow_style=False))
-    # sys.exit()
-
-    # make the Dockerfile
-    dockerfile = pfda_export_app_dockerfile(args.pfda_token, app["uid"])
-    dockerfile = dockerfile + "\nVOLUME /data\nVOLUME /work" # https://github.com/common-workflow-language/cwltool/issues/30
-    # TODO: need to build automatically on Quay.io, wait for it to finish, then register on Dockstore
-    if not docker_build(docker_tag, dockerfile):
-        sys.exit(1)
-
-    # upload to Github
-    cwl_content = yaml.dump(cwl, default_flow_style=False)
-    dockerfile_content = dockerfile
-    setup_github_repo_and_tags(args.gh_token, args.gh_org, args.app_name, app_version, cwl_content, dockerfile_content)
-
-    # TODO: replace this with the code from Ola and Geet that pushes to Quay.io
-    #print("Pushing {} to quay.io".format(docker_tag))
-    #docker_push(docker_tag, "ignored_for_now", args.d_org, args.q_account, args.q_token)
-    docker_push(docker_tag, "ignored_for_now", args.d_org, "ignore_for_now", "ignore_for_now")
-
-    # TODO: this needs to still be done, see the google doc for endpoint swagger link
-    register_on_dockstore(args.ds_token, args.ds_org, args.gh_org, args.d_org, args.app_name, app["revision"],
-                          author_and_org, "/Dockstore.cwl", cwl_content, "/Dockstore.wdl", "/Dockerfile")
 
 if __name__=="__main__":
     main()
