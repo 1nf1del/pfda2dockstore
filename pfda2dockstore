@@ -37,16 +37,6 @@ def resolve_pfda_app_name(token, app_name):
     apps = list_pfda_apps(token)
     return [app for app in apps if app["name"] == app_name]
 
-def get_app_revisions(token, app_id):
-    """
-    Returns a list of app versions of a specific app
-
-    :param token: (string) pFDA access token
-    :param app_id: (string) ID of the app
-    :return: list of dicts
-    """
-    list_of_revisions = pfda_api(token, "/list_app_revisions", {"id": app_id})
-    return  list_of_revisions #[app for app in list_of_apps if app["name"] == app_name]
 
 def describe_app(token, app_uid, fields=None, include=None):
     """
