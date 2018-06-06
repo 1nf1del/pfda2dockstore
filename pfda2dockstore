@@ -8,6 +8,7 @@ import json
 import sys
 import yaml
 import logging
+import traceback
 from github import Github
 from agithub.GitHub import GitHub
 
@@ -109,7 +110,7 @@ def pfda_app_to_cwl(app, docker_pull):
         }],
         "dct:creator": {
             "@id": "PrecisionFDA",
-            "foaf:name:": app["user"]
+            "foaf:name:": app["user_name"]
         }
     }
 
@@ -157,8 +158,8 @@ def pfda_app_to_cwl(app, docker_pull):
             raise Exception("Unsupported output type: {} {}".format(outp["class"], outp["name"]))
         outputs[outp["name"]] = cwl_outp
     cwl["outputs"] = outputs
-    doc = ' |\n{}'.format(app["name"])
-    cwl["doc"] = doc
+    # doc = ' |\n{}'.format(app["name"])
+    # cwl["doc"] = doc
 
     return cwl
 
@@ -186,7 +187,7 @@ def setup_github_repo_and_tags(token, org, tool, app_version, cwl_file, dockerfi
 
     # create repo
     try:
-        logger.info("Creating repo: {tool} in org {org}".format(tool=tool, org=org))
+        logger.info("Creating GitHub repo: {tool} in org {org}".format(tool=tool, org=org))
         repo = organization.create_repo(name=tool, description="Pfda2Dockstore Github repo for tool "+tool,
                                 homepage="https://github.com", private=False,
                                 has_issues=False, has_wiki=False, has_downloads=False )
@@ -219,10 +220,9 @@ def setup_github_repo_and_tags(token, org, tool, app_version, cwl_file, dockerfi
         #headers = {'Authorization': 'token '+args.token}
         ag.repos[org][tool].releases.post(body=data)
 
-    except:
-        e = sys.exc_info()[0]
+    except Exception as e:
         logger.error("Errors creating repo, check to ensure this is not a duplicate: "+str(e))
-        sys.exit(1)
+        raise e
 
 ##############################################################
 # Build docker image and push to a registry
@@ -286,7 +286,7 @@ def register_on_dockstore(token, dockstore_org, github_org, dockerhub_org,
     :return:
     """
     build_time = datetime.datetime.now().isoformat()
-    description = "This app was exported from precisionFDA (https://precision.fda.gov)\n" + app["readme"]
+    description = "This app was exported from precisionFDA (https://precision.fda.gov)\n\n" + app["readme"]
     dockstore_headers = {
         'Authorization': 'Bearer {}'.format(token),
         'Accept': 'application/json, text/plain, */*',
@@ -338,11 +338,11 @@ def register_on_dockstore(token, dockstore_org, github_org, dockerhub_org,
         "description": description,
         "lastBuild": build_time,
         "lastUpdated": build_time,
-        "labels": [
-            {
-                "value": "precisionFDA"
-            }
-        ],
+        # "labels": [
+        #     {
+        #         "value": "precisionFDA"
+        #     }
+        # ],
         "tags": tags
     }
 
@@ -354,7 +354,7 @@ def register_on_dockstore(token, dockstore_org, github_org, dockerhub_org,
                              allow_redirects=True)
     print
     logger.info(response.content)
-    logger.info(response.status_code)
+    logger.info("Status code {}".format(response.status_code))
 
     response.raise_for_status()
 
@@ -385,14 +385,16 @@ def export_apps(args, apps):
     :param apps: list of apps
     :return:
     """
+    failed_export_apps = []
     for index, app in enumerate(apps):
         logger.info("Exporting app {} out of {} from precisionFDA".format(index+1, len(apps)))
         try:
             export_app(args, app)
         except Exception as e:
+            failed_export_apps.append(app["name"])
             logger.error('Failed to export "{}"'.format(app["name"]))
-            logger.error('Exception: \n'.format(e))
-
+            traceback.print_exc()
+    return failed_export_apps
 
 def export_app(args, app):
     """
@@ -414,8 +416,8 @@ def export_app(args, app):
     # app_desc["user"]: {'dxuser': 'jdoe', 'full_name': 'John Doe'}
     app_desc = describe_app(args.pfda_token, app["uid"], include={"user": True, "org": True, "all_tags_list": True})
     app["org"] = app_desc.get("org", "").get("name", "")
-    app["user"] = app_desc.get("user", "").get("full_name", "")
-    author_and_org = "{} / {}".format(app["user"], app["org"])
+    app["user_name"] = app_desc.get("user", "").get("full_name", "")
+    author_and_org = "{} / {}".format(app["user_name"], app["org"])
 
     # make the CWL
     cwl = pfda_app_to_cwl(app, docker_tag)
@@ -425,7 +427,7 @@ def export_app(args, app):
     dockerfile = dockerfile + "\nVOLUME /data\nVOLUME /work" # https://github.com/common-workflow-language/cwltool/issues/30
     # TODO: need to build automatically on Quay.io, wait for it to finish, then register on Dockstore
     if not docker_build(docker_tag, dockerfile):
-        sys.exit(1)
+        raise
 
     # upload to Github
     cwl_content = yaml.dump(cwl, default_flow_style=False)
@@ -445,24 +447,26 @@ def export_app(args, app):
                           "/Dockstore.wdl")
 
 
-def get_app_info(args):
+def get_app_info(args, app_name):
     """
+    Returns app description for a give app name
 
-    :param args:
-    :return:
+    :param args: arguments passed to the script
+    :param app_name: (string) app name
+    :return: dict
     """
-    apps = resolve_pfda_app_name(args.pfda_token, args.app_name)
+    apps = resolve_pfda_app_name(args.pfda_token, app_name)
 
     # select the app with a version provided. If it was not provided the latest version will be used
     if args.app_version:
         apps = [app for app in apps if app.get("revision") == args.app_version]
     else:
         apps = sorted(apps, key=lambda app: app.get("revision"), reverse=True)
+
     if len(apps) == 0:
-        logger.error("Couldn't find app named " + args.app_name)
-        sys.exit(1)
+        raise Exception("Couldn't find app named " + app_name)
     elif len(apps) > 1:
-        logger.warn("Note: multiple public apps named {}; using highest revision {}".format(args.app_name, apps[0]["revision"]))
+        logger.warn("Note: multiple public apps named {}; using highest revision {}".format(app_name, apps[0]["revision"]))
     return apps[0]
 
 
@@ -484,12 +488,13 @@ def get_args():
     parser.add_argument('--dockstore-token', dest='ds_token', help='Your Dockstore token')
 
     # FIXME: currently it just takes the most recent version
-    # Note: most apps on precisionFDA has only one public version available
+    # Note: most apps on precisionFDA have only one public version available
     parser.add_argument('--app-version', dest='app_version', type=str, help="precisionFDA app version")
     parser.add_argument('--app-name', dest='app_name', type=str, help="precisionFDA app name")
 
-    parser.add_argument('--list-all-apps', dest="list_all_apps", action="store_true", help="Print a list of all the apps in precisionFDA")
-    parser.add_argument('--export-all-apps', dest="export_all_apps", action="store_true", help="Export all the apps in precisionFDA")
+    parser.add_argument('--list-all-apps', dest="list_all_apps", action="store_true", help="Print a list of all the apps from precisionFDA")
+    parser.add_argument('--export-all-apps', dest="export_all_apps", action="store_true", help="Export all the apps from precisionFDA")
+    parser.add_argument('--export-apps', dest="apps_list_path", help="Path to file with names of apps (one per line)")
 
     args = parser.parse_args()
     return args
@@ -512,19 +517,27 @@ def validate_args(args):
 
 def main():
     args = get_args()
+    failed_export_apps = None
 
     if args.list_all_apps:
         apps = list_pfda_apps(args.pfda_token)
         print_apps(apps)
+    elif args.apps_list_path:
+        validate_args(args)
+        app_names = open(args.apps_list_path).read().strip().split('\n')
+        app_descriptions = [get_app_info(args, name) for name in app_names]
+        failed_export_apps = export_apps(args, app_descriptions)
     elif args.export_all_apps:
         validate_args(args)
-        apps = list_pfda_apps(args.pfda_token)
-        export_apps(args, apps[4:6])
+        app_descriptions = list_pfda_apps(args.pfda_token)
+        failed_export_apps = export_apps(args, app_descriptions[9:12])
     else:
         validate_args(args)
-        app = get_app_info(args)
+        app = get_app_info(args, args.app_name)
         export_app(args, app)
 
+    if failed_export_apps:
+        logger.info("The following apps were not exported:\n{}".format("\n".join(failed_export_apps)))
 
 if __name__=="__main__":
     main()
