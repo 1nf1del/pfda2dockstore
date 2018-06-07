@@ -10,7 +10,7 @@ For each exported app the script will create:
  * a repo in DockerHub, where the image will be pushed,
  * a repo in Dockstore.
 The Dockstore org (namespace), GitHub org, and DockerHub org are set to `pfda2dockstore` by default
-in the runner script. The Dockstore orgs are not published.
+in the runner script. The Dockstore repos are not published.
 
 ## Running pfda2dockstore
 
@@ -51,6 +51,7 @@ organization [pfda2dockstore](https://hub.docker.com/u/pfda2dockstore):
                             --github-token $GITHUB_TOKEN \
                             --github-org pfda2dockstore \
                             --dockerhub-org pfda2dockstore \
+                            --dockstore-org pfda2dockstore
 ```
 
 The most recent version (i.e. one with the largest revision number) will be exported. If there exists an repo in
@@ -59,13 +60,20 @@ retrying.
 
 ### Export all apps
 
-To export all the (public) apps from precisionFDA to Dockstore, you can run the script:
+To export all the (public) apps from precisionFDA to Dockstore, run the script:
 
 ```
     ./run_export_apps.sh
 ```
 
-A list of apps that were *not* successfully registered on Dockstore will be returned at the end of the execution.
+A list of apps that were *not* successfully registered on Dockstore will be returned at the end of the execution. You
+can re-run the export of these apps using an "export from list" option below.
+
+It's a good idea to tee the standard error and output messages to a file for inspection later:
+
+```
+    ./run_export_apps.sh 2>&1 | tee pfda2dockstore.log
+```
 
 ### Export apps from a list
 
