@@ -522,7 +522,7 @@ def get_args():
     parser.add_argument('--app-name', dest='app_name', type=str, help="PrecisionFDA app name")
 
     parser.add_argument('--list-all-apps', dest="list_all_apps", action="store_true", help="Print a list of all the available apps from precisionFDA")
-    parser.add_argument('--export-all-apps', dest="export_all_apps", action="store_true", help="Export all the apps from precisionFDA to Dockstore")
+    parser.add_argument('--export-all-apps', dest="export_all_apps", action="store_true", help="Export all the public apps from precisionFDA to Dockstore")
     parser.add_argument('--export-apps', dest="apps_list_path", help="Path to file with names of apps (one per line) that need to be exported")
 
     args = parser.parse_args()
@@ -542,9 +542,6 @@ def validate_args(args):
         raise Exception("GitHub org must be provided")
     if not args.ds_org:
         raise Exception("Dockstore org must be provided")
-    #if args.d_org:
-    #     subprocess.docker login - -username foo - -password - stdin
-
 
 def main():
     args = get_args()
