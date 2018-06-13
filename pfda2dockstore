@@ -112,9 +112,9 @@ def pfda_app_to_cwl(app, docker_pull):
             "dockerPull": docker_pull,
             "dockerOutputDirectory": "/data/out"
         }],
-        "dct:creator": {
-            "@id": "PrecisionFDA",
-            "foaf:name:": app["user_name"]
+        "s:author": {
+            "class": "s:Person",
+            "s:name": app["user_name"]
         }
     }
 
@@ -274,12 +274,13 @@ def docker_push(tag, hub, orgname, accountname, token):
 ##############################################################
 
 def register_on_dockstore(token, dockstore_org, github_org, dockerhub_org,
-                          app, author,
-                          cwl_path, cwl_descriptor,
+                          app, cwl_path, cwl_descriptor,
                           dockerfile_path, dockerfile_content,
                           wdl_path):
-    build_time = datetime.datetime.now().isoformat()
-    description = "This app was exported from precisionFDA (https://precision.fda.gov)\n\n" + app["readme"]
+    build_time = datetime.datetime.utcnow().isoformat()
+    description = "This app was exported from precisionFDA (https://precision.fda.gov).\nIt was created by {}, {}\n\n{}".format(app["user_name"],
+                                                                                                                                app["org"],
+                                                                                                                                app["readme"])
     dockstore_headers = {
         'Authorization': 'Bearer {}'.format(token),
         'Accept': 'application/json, text/plain, */*',
@@ -327,7 +328,7 @@ def register_on_dockstore(token, dockstore_org, github_org, dockerhub_org,
         "defaultWDLTestParameterFile": "/test.wdl.json",
         "is_published": True,
         "private_access": False,
-        "author": author,
+        "author": app["user_name"],
         "description": description,
         "lastBuild": build_time,
         "lastUpdated": build_time,
@@ -457,8 +458,7 @@ def export_app(args, app):
     #docker_push(docker_tag, "ignored_for_now", args.d_org, args.q_account, args.q_token)
     docker_push(docker_tag, "ignored_for_now", args.d_org, "ignore_for_now", "ignore_for_now")
 
-    register_on_dockstore(args.ds_token, args.ds_org, args.gh_org, args.d_org,
-                          app, app["user_name"],
+    register_on_dockstore(args.ds_token, args.ds_org, args.gh_org, args.d_org, app,
                           "/Dockstore.cwl", cwl_content,
                           "/Dockerfile", dockerfile_content,
                           "/Dockstore.wdl")
