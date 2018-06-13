@@ -274,21 +274,10 @@ def docker_push(tag, hub, orgname, accountname, token):
 ##############################################################
 
 def register_on_dockstore(token, dockstore_org, github_org, dockerhub_org,
-                          app, author_and_org,
+                          app, author,
                           cwl_path, cwl_descriptor,
                           dockerfile_path, dockerfile_content,
                           wdl_path):
-    """
-
-    :param repo_name: Repo name (identical to the app name)
-    :param version: Repo version (identical to the app version)
-    :param dockstore_org:
-    :param github_org:
-    :param dockerhub_org:
-    :param token:
-    :param author:
-    :return:
-    """
     build_time = datetime.datetime.now().isoformat()
     description = "This app was exported from precisionFDA (https://precision.fda.gov)\n\n" + app["readme"]
     dockstore_headers = {
@@ -336,9 +325,9 @@ def register_on_dockstore(token, dockstore_org, github_org, dockerhub_org,
         "default_wdl_path": wdl_path,
         "defaultCWLTestParameterFile": "/test.cwl.json",
         "defaultWDLTestParameterFile": "/test.wdl.json",
-        "is_published": False,
+        "is_published": True,
         "private_access": False,
-        "author": author_and_org,
+        "author": author,
         "description": description,
         "lastBuild": build_time,
         "lastUpdated": build_time,
@@ -350,15 +339,15 @@ def register_on_dockstore(token, dockstore_org, github_org, dockerhub_org,
         "tags": tags
     }
 
-    logger.info("Will create a repo on Dockstore with the spec: ".format(json.dumps(dockstore_data)))
+    # logger.info("Will create a repo on Dockstore with the spec: ".format(json.dumps(dockstore_data)))
 
     response = requests.post("https://dockstore.org:8443/containers/registerManual",
                              data=json.dumps(dockstore_data),
                              headers=dockstore_headers,
                              allow_redirects=True)
     print
-    logger.info(response.content)
     logger.info("Status code {}".format(response.status_code))
+    logger.info(response.content)
     if response.status_code == 200:
         logger.info("Successfully imported {}:{} to Dockstore".format(app["name"], app["revision"]))
 
@@ -448,7 +437,6 @@ def export_app(args, app):
     app_desc = describe_app(args.pfda_token, app["uid"], include={"user": True, "org": True, "all_tags_list": True})
     app["org"] = app_desc.get("org", "").get("name", "")
     app["user_name"] = app_desc.get("user", "").get("full_name", "")
-    author_and_org = "{} / {}".format(app["user_name"], app["org"])
 
     # make the CWL
     cwl = pfda_app_to_cwl(app, docker_tag)
@@ -458,7 +446,7 @@ def export_app(args, app):
     dockerfile = dockerfile + "\nVOLUME /data\nVOLUME /work" # https://github.com/common-workflow-language/cwltool/issues/30
     # TODO: need to build automatically on Quay.io, wait for it to finish, then register on Dockstore
     if not docker_build(docker_tag, dockerfile):
-        raise
+        raise Exception("Failed to build docker image {}".format(docker_tag))
 
     # upload to Github
     cwl_content = yaml.dump(cwl, default_flow_style=False)
@@ -470,7 +458,7 @@ def export_app(args, app):
     docker_push(docker_tag, "ignored_for_now", args.d_org, "ignore_for_now", "ignore_for_now")
 
     register_on_dockstore(args.ds_token, args.ds_org, args.gh_org, args.d_org,
-                          app, author_and_org,
+                          app, app["user_name"],
                           "/Dockstore.cwl", cwl_content,
                           "/Dockerfile", dockerfile_content,
                           "/Dockstore.wdl")
@@ -505,25 +493,37 @@ def get_app_info(args, app_name):
 
 def get_args():
     parser = argparse.ArgumentParser(description='Export precisionFDA app to Dockstore', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('-p','--pfda-token', metavar='XXX', type=str, help='PrecisionFDA auth token')
-    parser.add_argument('-v', '--verbose', action='store_true', help='Verbose log to standard error')
-    parser.add_argument('--github-token', dest='gh_token', help='Your GitHub token')
-    parser.add_argument('--github-org', dest='gh_org', help='The GitHub organization to make repositories in')
+    parser.add_argument('-p','--pfda-token', metavar='XXX', type=str,
+                        help='PrecisionFDA auth token')
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help='Verbose log to standard error')
+    parser.add_argument('--github-token', dest='gh_token',
+                        help='Your GitHub token')
+    parser.add_argument('--github-org', dest='gh_org',
+                        help='The GitHub organization to make repositories in')
     # TODO: quay is not being used
-    parser.add_argument('--dockerhub-org', dest='d_org', help='The DockerHub organization to make repositories in')
+    parser.add_argument('--dockerhub-org', dest='d_org',
+                        help='The DockerHub organization to make repositories in')
     #parser.add_argument('--quay-token', dest='q_token', help='your Quay.io token')
     #parser.add_argument('--quay-account', dest='q_account', help='the Quay.io account (eg. robot account) to make repositories in')
-    parser.add_argument('--dockstore-org', dest='ds_org', help='The Dockstore organization to make repositories in')
-    parser.add_argument('--dockstore-token', dest='ds_token', help='Your Dockstore token')
+    parser.add_argument('--dockstore-org', dest='ds_org',
+                        help='The Dockstore organization to make repositories in')
+    parser.add_argument('--dockstore-token', dest='ds_token',
+                        help='Your Dockstore token')
 
     # FIXME: currently it just takes the most recent version
     # Note: most apps on precisionFDA have only one public version available
-    parser.add_argument('--app-version', dest='app_version', type=str, help="PrecisionFDA app version")
-    parser.add_argument('--app-name', dest='app_name', type=str, help="PrecisionFDA app name")
+    parser.add_argument('--app-version', dest='app_version', type=str,
+                        help="PrecisionFDA app version")
+    parser.add_argument('--app-name', dest='app_name', type=str,
+                        help="PrecisionFDA app name")
 
-    parser.add_argument('--list-all-apps', dest="list_all_apps", action="store_true", help="Print a list of all the available apps from precisionFDA")
-    parser.add_argument('--export-all-apps', dest="export_all_apps", action="store_true", help="Export all the public apps from precisionFDA to Dockstore")
-    parser.add_argument('--export-apps', dest="apps_list_path", help="Path to file with names of apps (one per line) that need to be exported")
+    parser.add_argument('--list-all-apps', dest="list_all_apps", action="store_true",
+                        help="Print a list of all the available apps from precisionFDA")
+    parser.add_argument('--export-all-apps', dest="export_all_apps", action="store_true",
+                        help="Export all the public apps from precisionFDA to Dockstore")
+    parser.add_argument('--export-apps', dest="apps_list_path",
+                        help="Path to file with names of apps (one per line) that need to be exported")
 
     args = parser.parse_args()
     return args

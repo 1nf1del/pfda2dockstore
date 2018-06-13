@@ -26,7 +26,7 @@ You can also prepare the environment:
 ```
     conda create -n pfda python=3.5 anaconda
     source activate pfda
-    pip install PyGithub agithub
+    pip install PyGithub agithub yaml
 ```
 
 ### Export a specific app
