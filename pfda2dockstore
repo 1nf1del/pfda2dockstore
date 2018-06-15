@@ -531,18 +531,21 @@ def get_args():
 
 
 def validate_args(args):
-    if not args.ds_token:
-        raise Exception("Dockstore access token must be provided")
     if not args.pfda_token:
         raise Exception("Precision FDA access token must be provided")
-    if not args.gh_token:
-        raise Exception("GitHub access token must be provided")
-    if not args.d_org:
-        raise Exception("Docker hub org must be provided")
-    if not args.gh_org:
-        raise Exception("GitHub org must be provided")
-    if not args.ds_org:
-        raise Exception("Dockstore org must be provided")
+    
+    # The options below are not required if we only want to list precisionFDA apps
+    if not args.list_all_apps:
+        if not args.ds_token:
+            raise Exception("Dockstore access token must be provided")
+        if not args.gh_token:
+            raise Exception("GitHub access token must be provided")
+        if not args.d_org:
+            raise Exception("Docker hub org must be provided")
+        if not args.gh_org:
+            raise Exception("GitHub org must be provided")
+        if not args.ds_org:
+            raise Exception("Dockstore org must be provided")
 
 def main():
     args = get_args()
