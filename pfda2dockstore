@@ -89,7 +89,7 @@ def pfda_api(token, path, body={}):
     if response.status_code != 200:
         logger.error("precisionFDA API error status {}:".format(response.status_code))
         logger.error(response.json())
-        sys.exit(1)
+    response.raise_for_status()
     return response.json()
 
 
@@ -278,9 +278,9 @@ def register_on_dockstore(token, dockstore_org, github_org, dockerhub_org,
                           dockerfile_path, dockerfile_content,
                           wdl_path):
     build_time = datetime.datetime.utcnow().isoformat()
-    description = "This app was exported from precisionFDA (https://precision.fda.gov).\nIt was created by {}, {}\n\n{}".format(app["user_name"],
-                                                                                                                                app["org"],
-                                                                                                                                app["readme"])
+    description = "This app was exported from precisionFDA (https://precision.fda.gov).\nIt was created by {}, {}.\n\n{}".format(app["user_name"],
+                                                                                                                                 app["org"],
+                                                                                                                                 app["readme"])
     dockstore_headers = {
         'Authorization': 'Bearer {}'.format(token),
         'Accept': 'application/json, text/plain, */*',
@@ -319,6 +319,7 @@ def register_on_dockstore(token, dockstore_org, github_org, dockerhub_org,
         "name": app["name"],
         "toolname": app["name"],
         "namespace": dockstore_org,
+        "defaultVersion": app["revision"],
         "registry": "DOCKER_HUB",
         "gitUrl":"https://github.com/{}/{}".format(github_org, app["name"]),
         "default_dockerfile_path": dockerfile_path,
