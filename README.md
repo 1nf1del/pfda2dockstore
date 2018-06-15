@@ -105,6 +105,8 @@ using the `--list-all-apps` argument of the `pfda2dockstore` script, for example
                             --pfda-token $PFDA_TOKEN
 ```
 
+The script will print app name, version, and title to STDOUT.
+
 ## Results
 
 After the execution take a look at your org in Github, DockerHub, and Dockstore.
