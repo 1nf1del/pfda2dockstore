@@ -95,6 +95,16 @@ and run:
 The apps from this list will be exported. A list of apps that were *not* successfully registered will be returned
 at the end of the execution.
 
+### List available apps
+
+Before exporting all the apps you can verify what and how many apps will be exported. You can do that by
+using the `--list-all-apps` argument of the `pfda2dockstore` script, for example:
+
+```
+    $ python pfda2dockstore --list-all-apps \
+                            --pfda-token $PFDA_TOKEN
+```
+
 ## Results
 
 After the execution take a look at your org in Github, DockerHub, and Dockstore.
