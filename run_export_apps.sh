@@ -8,10 +8,6 @@ prompt() {
     echo -n "$1: " && read $2 $1 && echo
 }
 
-if [[ -z $APP ]]; then
-    echo "Please enter your application name from precisionFDA"
-    prompt "APP"
-fi
 if [[ -z $ORG ]]; then
     echo "Please enter your github org"
     prompt "ORG"
@@ -29,8 +25,15 @@ if [[ -z $DS_TOKEN ]]; then
     prompt "DS_TOKEN"
 fi
 
+APP_LIST_PATH=$1
+if [[ -z $APP_LIST_PATH ]]; then
+    option="--export-all-apps"
+else
+    option="--export-apps $APP_LIST_PATH" 
+fi
+
 python3 pfda2dockstore \
-  --app-name $APP \
+  $option \
   --pfda-token $PFDA_TOKEN \
   --github-org $ORG \
   --github-token $GITHUB_TOKEN \
